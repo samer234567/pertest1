@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>مشغل 360 VR - Professional Edition</title>
+    
+    <!-- Three.js Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DeviceOrientationControls.js"></script>
+    
+    <!-- WebXR Polyfill -->
+    <script src="https://unpkg.com/webxr-polyfill@latest/build/webxr-polyfill.min.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* ========================================
+           VARIABLES & RESET
+        ======================================== */
+        :root {
+            --primary: #ff4757;
+            --primary-dark: #ff3838;
+            --secondary: #5f27cd;
+            --bg: #000000;
+            --panel-bg: rgba(10, 12, 16, 0.95);
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-strong: rgba(255, 255, 255, 0.1);
+            --text: #ffffff;
+            --text-muted: #a0a0a0;
+            --border: rgba(255, 255, 255, 0.1);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+            --radius: 12px;
+            --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+            --safe-area-top: env(safe-area-inset-top);
+            --safe-area-bottom: env(safe-area-inset-bottom);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Cairo", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* ========================================
+           LOADING SCREEN
+        ======================================== */
+        #loading {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            transition: opacity 0.5s;
+        }
+
+        #loading.hide {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .spinner {
+            width: 64px;
+            height: 64px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 20px;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .loading-progress {
+            margin-top: 12px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        /* ========================================
+           MAIN CONTAINER
+        ======================================== */
+        #app {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        #viewer {
+            position: absolute;
+            inset: 0;
+            background: #000;
+        }
+
+        #video {
+            display: none;
+        }
+
+        #canvas-container {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* ========================================
+           TOP BAR
+        ======================================== */
+        #top-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: calc(12px + var(--safe-area-top)) 16px 12px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, transparent 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            transition: transform var(--transition);
+        }
+
+        #top-bar.hidden {
+            transform: translateY(-100%);
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--glass);
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .status-badge.vr-active {
+            background: var(--secondary);
+            color: #fff;
+        }
+
+        .network-info {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        /* ========================================
+           BOTTOM CONTROLS
+        ======================================== */
+        #controls {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 16px 16px calc(16px + var(--safe-area-bottom));
+            background: linear-gradient(0deg, rgba(0,0,0,0.95) 0%, transparent 100%);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            transition: transform var(--transition);
+        }
+
+        #controls.hidden {
+            transform: translateY(100%);
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            margin-bottom: 12px;
+        }
+
+        .progress-bar-wrapper {
+            width: 100%;
+            height: 6px;
+            background: var(--glass);
+            border-radius: 3px;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+            border-radius: 3px;
+            transition: width 0.1s linear;
+            position: relative;
+        }
+
+        .progress-handle {
+            position: absolute;
+            right: -8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+
+        .time-display {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* Control Buttons */
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .controls-left,
+        .controls-center,
+        .controls-right {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .controls-center {
+            justify-content: center;
+        }
+
+        .controls-right {
+            justify-content: flex-end;
+        }
+
+        .btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: none;
+            background: var(--glass);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all var(--transition);
+            backdrop-filter: blur(5px);
+        }
+
+        .btn:active {
+            transform: scale(0.92);
+        }
+
+        .btn-play {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            font-size: 1.3rem;
+            box-shadow: 0 4px 20px rgba(255, 71, 87, 0.4);
+        }
+
+        .btn-vr {
+            background: linear-gradient(135deg, var(--secondary) 0%, #341f97 100%);
+            box-shadow: 0 4px 20px rgba(95, 39, 205, 0.4);
+        }
+
+        /* ========================================
+           SETTINGS PANEL
+        ======================================== */
+        #settings-btn {
+            position: fixed;
+            top: calc(16px + var(--safe-area-top));
+            left: 16px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: none;
+            background: var(--glass);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            z-index: 101;
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+
+        #settings-btn:active {
+            transform: scale(0.92);
+        }
+
+        #settings-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            max-width: 420px;
+            height: 100%;
+            background: var(--panel-bg);
+            backdrop-filter: blur(20px);
+            z-index: 200;
+            transform: translateX(-100%);
+            transition: transform var(--transition);
+            overflow-y: auto;
+            padding: calc(20px + var(--safe-area-top)) 20px calc(20px + var(--safe-area-bottom));
+        }
+
+        #settings-panel.show {
+            transform: translateX(0);
+        }
+
+        #settings-panel::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #settings-panel::-webkit-scrollbar-thumb {
+            background: var(--glass-strong);
+            border-radius: 3px;
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .settings-header h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .close-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: none;
+            background: var(--glass);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .settings-section {
+            margin-bottom: 28px;
+        }
+
+        .section-title {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+            font-weight: 600;
+        }
+
+        .setting-item {
+            margin-bottom: 20px;
+        }
+
+        .setting-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+        }
+
+        .setting-value {
+            color: var(--primary);
+            font-weight: 600;
+            min-width: 60px;
+            text-align: left;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--glass);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
+        }
+
+        .slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 52px;
+            height: 28px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--glass);
+            border-radius: 28px;
+            transition: 0.3s;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--primary);
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+        }
+
+        .select {
+            width: 100%;
+            padding: 12px;
+            background: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.95rem;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .select option {
+            background: #1a1a1a;
+            color: var(--text);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: var(--glass);
+            color: var(--text);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+
+        .action-btn:active {
+            transform: scale(0.96);
+        }
+
+        .action-btn.primary {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        /* ========================================
+           VR OVERLAY
+        ======================================== */
+        #vr-overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 150;
+            display: none;
+        }
+
+        #vr-overlay.show {
+            display: block;
+        }
+
+        .vr-divider {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateX(-50%);
+        }
+
+        .vr-controls-bottom {
+            position: absolute;
+            bottom: calc(24px + var(--safe-area-bottom));
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 12px;
+            pointer-events: auto;
+        }
+
+        .vr-btn-circle {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+        }
+
+        .vr-btn-circle:active {
+            transform: scale(0.92);
+        }
+
+        /* ========================================
+           QUALITY SELECTOR
+        ======================================== */
+        #quality-selector {
+            position: fixed;
+            bottom: calc(140px + var(--safe-area-bottom));
+            right: 16px;
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 8px;
+            z-index: 150;
+            backdrop-filter: blur(20px);
+            box-shadow: var(--shadow);
+            transform: translateY(10px);
+            opacity: 0;
+            visibility: hidden;
+            transition: all var(--transition);
+        }
+
+        #quality-selector.show {
+            transform: translateY(0);
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .quality-option {
+            padding: 12px 20px;
+            border: none;
+            background: transparent;
+            color: var(--text);
+            text-align: right;
+            width: 100%;
+            cursor: pointer;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            transition: background var(--transition);
+        }
+
+        .quality-option:hover {
+            background: var(--glass);
+        }
+
+        .quality-option.active {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        /* ========================================
+           NOTIFICATIONS
+        ======================================== */
+        #notification {
+            position: fixed;
+            top: calc(80px + var(--safe-area-top));
+            left: 50%;
+            transform: translateX(-50%) translateY(-20px);
+            background: var(--panel-bg);
+            padding: 14px 20px;
+            border-radius: 10px;
+            z-index: 300;
+            backdrop-filter: blur(20px);
+            box-shadow: var(--shadow);
+            opacity: 0;
+            visibility: hidden;
+            transition: all var(--transition);
+            max-width: 90%;
+        }
+
+        #notification.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* ========================================
+           GYROSCOPE PERMISSION DIALOG
+        ======================================== */
+        #gyro-dialog {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 500;
+            padding: 20px;
+            opacity: 0;
+            visibility: hidden;
+            transition: all var(--transition);
+        }
+
+        #gyro-dialog.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .gyro-content {
+            background: var(--panel-bg);
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 400px;
+            width: 100%;
+            backdrop-filter: blur(20px);
+        }
+
+        .gyro-content h3 {
+            font-size: 1.3rem;
+            margin-bottom: 12px;
+            color: var(--primary);
+        }
+
+        .gyro-content p {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        .gyro-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .gyro-btn {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+
+        .gyro-btn.accept {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        .gyro-btn.decline {
+            background: var(--glass);
+            color: var(--text);
+        }
+
+        .gyro-btn:active {
+            transform: scale(0.96);
+        }
+
+        /* ========================================
+           RESPONSIVE
+        ======================================== */
+        @media (max-width: 768px) {
+            #settings-panel {
+                max-width: 100%;
+            }
+
+            .controls-grid {
+                gap: 8px;
+            }
+
+            .btn {
+                width: 44px;
+                height: 44px;
+                font-size: 1rem;
+            }
+
+            .btn-play {
+                width: 52px;
+                height: 52px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .btn {
+                width: 42px;
+                height: 42px;
+                font-size: 0.95rem;
+            }
+
+            .btn-play {
+                width: 50px;
+                height: 50px;
+                font-size: 1.2rem;
+            }
+
+            .progress-bar-wrapper {
+                height: 5px;
+            }
+
+            .setting-label {
+                font-size: 0.9rem;
+            }
+        }
+
+        /* ========================================
+           ACCESSIBILITY
+        ======================================== */
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading">
+        <div class="spinner"></div>
+        <div class="loading-text">جاري تحميل المشغل...</div>
+        <div class="loading-progress" id="loading-progress"></div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app">
+        <!-- Video Element -->
+        <video 
+            id="video" 
+            crossorigin="anonymous" 
+            playsinline 
+            webkit-playsinline 
+            preload="metadata"
+            loop
+            muted
+        ></video>
+
+        <!-- Viewer -->
+        <div id="viewer">
+            <div id="canvas-container"></div>
+        </div>
+
+        <!-- Top Bar -->
+        <div id="top-bar">
+            <div class="status-badge" id="mode-badge">
+                <i class="fas fa-desktop"></i>
+                <span>عرض عادي</span>
+            </div>
+            <div class="network-info" id="network-info">
+                <i class="fas fa-wifi"></i>
+                <span id="network-speed">--</span>
+            </div>
+        </div>
+
+        <!-- Settings Button -->
+        <button id="settings-btn" aria-label="الإعدادات">
+            <i class="fas fa-sliders-h"></i>
+        </button>
+
+        <!-- Bottom Controls -->
+        <div id="controls">
+            <!-- Progress Bar -->
+            <div class="progress-container">
+                <div class="progress-bar-wrapper" id="progress-wrapper">
+                    <div class="progress-bar" id="progress-bar">
+                        <div class="progress-handle"></div>
+                    </div>
+                </div>
+                <div class="time-display">
+                    <span id="current-time">00:00</span>
+                    <span id="duration">00:00</span>
+                </div>
+            </div>
+
+            <!-- Control Buttons -->
+            <div class="controls-grid">
+                <div class="controls-left">
+                    <button class="btn" id="volume-btn" aria-label="الصوت">
+                        <i class="fas fa-volume-up"></i>
+                    </button>
+                    <button class="btn" id="quality-btn" aria-label="الجودة">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+
+                <div class="controls-center">
+                    <button class="btn" id="backward-btn" aria-label="رجوع 10 ثواني">
+                        <i class="fas fa-backward"></i>
+                    </button>
+                    <button class="btn btn-play" id="play-btn" aria-label="تشغيل">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <button class="btn" id="forward-btn" aria-label="تقديم 10 ثواني">
+                        <i class="fas fa-forward"></i>
+                    </button>
+                </div>
+
+                <div class="controls-right">
+                    <button class="btn btn-vr" id="vr-btn" aria-label="وضع VR">
+                        <i class="fas fa-vr-cardboard"></i>
+                    </button>
+                    <button class="btn" id="fullscreen-btn" aria-label="ملء الشاشة">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <aside id="settings-panel">
+            <div class="settings-header">
+                <h2>الإعدادات</h2>
+                <button class="close-btn" id="close-settings">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Video Settings -->
+            <section class="settings-section">
+                <h3 class="section-title">إعدادات الفيديو</h3>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>سرعة التشغيل</span>
+                        <span class="setting-value" id="speed-value">1.0x</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="speed-slider"
+                        min="0.25"
+                        max="2"
+                        step="0.25"
+                        value="1"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>مستوى الصوت</span>
+                        <span class="setting-value" id="volume-value">70%</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="volume-slider"
+                        min="0"
+                        max="100"
+                        value="70"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>الجودة</span>
+                    </div>
+                    <select class="select" id="quality-select">
+                        <option value="auto">تلقائي</option>
+                        <option value="1080p">Full HD (1080p)</option>
+                        <option value="720p">HD (720p)</option>
+                        <option value="480p">SD (480p)</option>
+                    </select>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>تكرار الفيديو</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="loop-toggle" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VR Settings -->
+            <section class="settings-section">
+                <h3 class="section-title">إعدادات VR المتقدمة</h3>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>المسافة بين العينين (IPD)</span>
+                        <span class="setting-value" id="ipd-value">64mm</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="ipd-slider"
+                        min="55"
+                        max="75"
+                        value="64"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>المسافة بين القسمين</span>
+                        <span class="setting-value" id="separation-value">0px</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="separation-slider"
+                        min="0"
+                        max="20"
+                        value="2"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>حجم كل قسم (Width)</span>
+                        <span class="setting-value" id="section-width-value">50%</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="section-width-slider"
+                        min="45"
+                        max="55"
+                        step="0.5"
+                        value="50"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>مجال الرؤية (FOV)</span>
+                        <span class="setting-value" id="fov-value">75°</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="fov-slider"
+                        min="60"
+                        max="120"
+                        value="75"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>دوران الكاميرا</span>
+                        <span class="setting-value" id="rotation-value">0°</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="rotation-slider"
+                        min="-180"
+                        max="180"
+                        value="0"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>التكبير (Zoom)</span>
+                        <span class="setting-value" id="zoom-value">1.0x</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="zoom-slider"
+                        min="0.5"
+                        max="2"
+                        step="0.1"
+                        value="1"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>السطوع</span>
+                        <span class="setting-value" id="brightness-value">100%</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="brightness-slider"
+                        min="50"
+                        max="150"
+                        value="100"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>التباين</span>
+                        <span class="setting-value" id="contrast-value">100%</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        class="slider" 
+                        id="contrast-slider"
+                        min="50"
+                        max="150"
+                        value="100"
+                    >
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>عكس الصورة</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="invert-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Performance Settings -->
+            <section class="settings-section">
+                <h3 class="section-title">الأداء</h3>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>جودة الرندر</span>
+                    </div>
+                    <select class="select" id="render-quality">
+                        <option value="low">منخفض (أسرع)</option>
+                        <option value="medium">متوسط</option>
+                        <option value="high" selected>عالي</option>
+                        <option value="ultra">فائق</option>
+                    </select>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span>Anti-aliasing</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="antialiasing-toggle" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Actions -->
+            <section class="settings-section">
+                <div class="btn-group">
+                    <button class="action-btn" id="reset-settings">
+                        <i class="fas fa-undo"></i>
+                        إعادة الضبط
+                    </button>
+                    <button class="action-btn primary" id="save-settings">
+                        <i class="fas fa-save"></i>
+                        حفظ
+                    </button>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Quality Selector -->
+        <div id="quality-selector">
+            <button class="quality-option active" data-quality="auto">تلقائي</button>
+            <button class="quality-option" data-quality="1080p">1080p</button>
+            <button class="quality-option" data-quality="720p">720p</button>
+            <button class="quality-option" data-quality="480p">480p</button>
+        </div>
+
+        <!-- VR Overlay -->
+        <div id="vr-overlay">
+            <div class="vr-divider"></div>
+            <div class="vr-controls-bottom">
+                <button class="vr-btn-circle" id="vr-play">
+                    <i class="fas fa-play"></i>
+                </button>
+                <button class="vr-btn-circle" id="vr-reset">
+                    <i class="fas fa-redo"></i>
+                </button>
+                <button class="vr-btn-circle" id="vr-exit">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Gyroscope Dialog -->
+        <div id="gyro-dialog">
+            <div class="gyro-content">
+                <h3>تفعيل مستشعر الحركة</h3>
+                <p>لتجربة VR مثالية، نحتاج إذن الوصول إلى مستشعر الحركة (Gyroscope). سيُطلب الإذن مرة واحدة فقط.</p>
+                <div class="gyro-actions">
+                    <button class="gyro-btn accept" id="accept-gyro">السماح</button>
+                    <button class="gyro-btn decline" id="decline-gyro">رفض</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification -->
+        <div id="notification"></div>
+    </div>
+
+    <script>
+        // سيتم وضع JavaScript في ملف منفصل
+        console.log('🎬 360 VR Player - HTML Loaded');
+    </script>
+    <script src="main.js">
+        
+    </script>
+</body>
+</html>
