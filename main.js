@@ -1,7 +1,7 @@
 // ============================================
 // 🎬 رابط الفيديو - عدّله هنا
 // ============================================
-const VIDEO_URL = 'https://www.dropbox.com/scl/fi/z5x6ngft8kbij81o0fu21/vrtest.mp4?rlkey=thyj3fm4fo2m9ub6wsmk5hksq&st=namku4sr&dl=0';
+const VIDEO_URL = 'https://beisat.click/vrtest.mp4';
 
 // ============================================
 // CONFIGURATION & DEVICE DETECTION
@@ -765,5 +765,6 @@ if (document.readyState === 'loading') {
 } else {
     init();
 }
+
 
 console.log('📜 Script loaded');
